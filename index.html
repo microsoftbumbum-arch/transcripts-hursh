@@ -317,6 +317,7 @@
         <div>
           <div class="nome">#${escapeHtml(t.channelName || 'ticket')}</div>
           <div class="meta">Fechado por ${escapeHtml(t.closedByTag || '—')} · ${dataFormatada}</div>
+          ${t.resumo ? `<div class="meta" style="margin-top:4px;">${escapeHtml(t.resumo)}</div>` : ''}
         </div>
         <a href="${t.url}" target="_blank" rel="noopener">Abrir transcript</a>
       `;
@@ -350,7 +351,7 @@
 
     // Monta um resumo enxuto de cada ticket para mandar como contexto pro modelo
     const contexto = todos.map((t, i) =>
-      `[${i}] canal: ${t.channelName || '—'} | fechado por: ${t.closedByTag || '—'} | data: ${t.date || '—'}`
+      `[${i}] canal: ${t.channelName || '—'} | fechado por: ${t.closedByTag || '—'} | data: ${t.date || '—'} | resumo: ${t.resumo || 'sem resumo disponível'}`
     ).join('\n');
 
     const prompt = `Você é o assistente do painel de tickets da hursh. Abaixo está a lista de tickets já fechados (índice, canal, quem fechou e data). ` +

@@ -48,7 +48,9 @@
     background:var(--accent-soft);
     display:flex;align-items:center;justify-content:center;
     color:var(--accent);
-    font-size:20px;
+    font-size:14px;
+    font-weight:700;
+    letter-spacing:0.5px;
   }
   .lock-card h1{
     font-size:17px;
@@ -125,7 +127,6 @@
     outline:none;
   }
   #busca:focus{ border-color: var(--accent); }
-
   main{ padding:22px 28px 60px; max-width:900px; margin:0 auto; }
 
   .item{
@@ -161,6 +162,54 @@
   }
   .item a:hover{ filter:brightness(1.15); }
 
+  .busca-wrap{
+    display:flex;
+    gap:8px;
+  }
+  #btn-buscar{
+    padding:9px 16px;
+    border-radius:8px;
+    border:none;
+    background:var(--accent);
+    color:#fff;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  #btn-buscar:hover{ filter:brightness(1.08); }
+  #btn-buscar:disabled{ opacity:0.6; cursor:default; }
+
+  #resultado-ia{
+    background:var(--panel);
+    border:1px solid var(--accent);
+    border-radius:10px;
+    padding:16px 18px;
+    margin-bottom:16px;
+    font-size:13.5px;
+    line-height:1.5;
+  }
+  #resultado-ia .titulo-ia{
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+    color:var(--accent);
+    font-weight:700;
+    margin-bottom:8px;
+  }
+  #resultado-ia .relacionados{
+    margin-top:12px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  #resultado-ia .relacionados a{
+    font-size:12.5px;
+    color:var(--accent);
+    text-decoration:none;
+  }
+  #resultado-ia .relacionados a:hover{ text-decoration:underline; }
+
   #vazio{
     text-align:center;
     color:var(--muted);
@@ -174,11 +223,11 @@
 
   <div id="lock">
     <div class="lock-card">
-      <div class="lock-icon">🔒</div>
-      <h1>Painel de Transcripts</h1>
-      <p>Acesso restrito à equipe de suporte.</p>
-      <input type="password" id="senha" placeholder="Senha" autocomplete="off">
-      <button id="entrar">Entrar</button>
+      <div class="lock-icon">HS</div>
+      <h1>hursh · central de tickets</h1>
+      <p>Área da equipe. Digite a chave de acesso.</p>
+      <input type="password" id="senha" placeholder="••••••••" autocomplete="off">
+      <button id="entrar">Acessar</button>
       <div id="erro"></div>
     </div>
   </div>
@@ -187,20 +236,21 @@
     <header>
       <div>
         <h1>Transcripts de tickets</h1>
-        <div class="sub" id="contagem">carregando...</div>
+        <div class="sub" id="contagem">carregando histórico...</div>
       </div>
-      <input type="text" id="busca" placeholder="Buscar por canal ou usuário...">
+      <input type="text" id="busca" placeholder="Pergunte algo sobre os tickets...">
+      <button id="btn-buscar">Buscar</button>
     </header>
     <main>
+      <div id="resultado-ia" style="display:none;"></div>
       <div id="lista"></div>
-      <div id="vazio">Nenhum transcript encontrado.</div>
+      <div id="vazio">Nenhum ticket fechado ainda.</div>
     </main>
   </div>
 
 <script>
-  // Senha simples de acesso — não é criptografia real, apenas filtra acesso casual.
   const SENHA_CORRETA = "HURSH019";
-  const CHAVE_SESSAO = "transcripts_auth";
+  const CHAVE_SESSAO = "hursh_auth";
 
   const lock = document.getElementById('lock');
   const painel = document.getElementById('painel');
@@ -280,14 +330,82 @@
     }[m]));
   }
 
-  document.getElementById('busca').addEventListener('input', e => {
-    const termo = e.target.value.toLowerCase().trim();
-    if(!termo){ renderizar(todos); return; }
-    const filtrados = todos.filter(t =>
-      (t.channelName || '').toLowerCase().includes(termo) ||
-      (t.closedByTag || '').toLowerCase().includes(termo)
-    );
-    renderizar(filtrados);
+  const GROQ_API_KEY = "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";
+  const GROQ_MODEL = "llama-3.3-70b-versatile";
+
+  async function buscarComIA(pergunta){
+    const btn = document.getElementById('btn-buscar');
+    const caixaResultado = document.getElementById('resultado-ia');
+
+    if(!pergunta.trim()){
+      caixaResultado.style.display = 'none';
+      renderizar(todos);
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+    caixaResultado.style.display = 'block';
+    caixaResultado.innerHTML = `<div class="titulo-ia">Resposta</div>Analisando os tickets...`;
+
+    // Monta um resumo enxuto de cada ticket para mandar como contexto pro modelo
+    const contexto = todos.map((t, i) =>
+      `[${i}] canal: ${t.channelName || '—'} | fechado por: ${t.closedByTag || '—'} | data: ${t.date || '—'}`
+    ).join('\n');
+
+    const prompt = `Você é o assistente do painel de tickets da hursh. Abaixo está a lista de tickets já fechados (índice, canal, quem fechou e data). ` +
+      `Responda a pergunta do usuário em português, de forma direta e curta, dizendo quais tickets (pelo índice) são relevantes.\n\n` +
+      `Tickets:\n${contexto}\n\nPergunta: ${pergunta}\n\n` +
+      `Responda em texto corrido curto e, na última linha, liste os índices relevantes assim: INDICES: 0,2,5 (ou INDICES: nenhum se não achar nada).`;
+
+    try {
+      const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2
+        })
+      });
+
+      const data = await resp.json();
+      const texto = data.choices?.[0]?.message?.content || "Não consegui analisar os tickets agora.";
+
+      // Extrai os índices citados pela IA na última linha
+      const match = texto.match(/INDICES:\s*([\d,\s]+|nenhum)/i);
+      let indices = [];
+      if(match && !/nenhum/i.test(match[1])){
+        indices = match[1].split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+      }
+      const respostaLimpa = texto.replace(/INDICES:.*$/i, '').trim();
+      const relacionados = indices.map(i => todos[i]).filter(Boolean);
+
+      caixaResultado.innerHTML = `
+        <div class="titulo-ia">Resposta</div>
+        ${escapeHtml(respostaLimpa)}
+        ${relacionados.length ? `<div class="relacionados">${relacionados.map(t =>
+          `<a href="${t.url}" target="_blank" rel="noopener">↳ #${escapeHtml(t.channelName || 'ticket')} — ${escapeHtml(t.closedByTag || '')}</a>`
+        ).join('')}</div>` : ''}
+      `;
+
+      renderizar(relacionados.length ? relacionados : todos);
+    } catch(e){
+      caixaResultado.innerHTML = `<div class="titulo-ia">Resposta</div>Não foi possível consultar agora. Tente novamente.`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Buscar';
+    }
+  }
+
+  document.getElementById('btn-buscar').addEventListener('click', () => {
+    buscarComIA(document.getElementById('busca').value);
+  });
+  document.getElementById('busca').addEventListener('keydown', e => {
+    if(e.key === 'Enter') buscarComIA(e.target.value);
   });
 </script>
 
